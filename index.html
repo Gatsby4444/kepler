@@ -325,7 +325,22 @@ details.done ul{margin:6px 0 0;padding-left:18px;line-height:1.7}
 .dclose{margin-left:auto;width:44px;height:44px;border:1px solid var(--line2);border-radius:var(--radius);background:var(--btn-bg);font-size:16px}
 .dbody{flex:1;overflow:auto;padding:20px 20px max(28px,env(safe-area-inset-bottom,0px))}
 .dbody .dp{display:flex;flex-direction:column;gap:24px}
-#drawer[data-tab="heritage"] #pOptions,#drawer[data-tab="options"] #pHeritage{display:none}
+#drawer[data-tab="heritage"] #pOptions,#drawer[data-tab="heritage"] #pAdmin,#drawer[data-tab="options"] #pHeritage,#drawer[data-tab="options"] #pAdmin,#drawer[data-tab="admin"] #pHeritage,#drawer[data-tab="admin"] #pOptions{display:none}
+.dtabs button[hidden]{display:none}
+.apre{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}
+.apre .btn{padding:6px 4px}
+.adm input[type=text],.admcode{width:100%;min-height:44px;padding:0 12px;border:1px solid var(--line2);border-radius:var(--radius);background:var(--card);color:var(--fg);font-family:var(--mono);font-size:15px}
+.admcode{letter-spacing:.08em;text-transform:uppercase;margin-top:6px}
+.arows{display:flex;flex-direction:column}
+.arow{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)}
+.arow:last-child{border-bottom:0}
+.arow .alab{flex:1;min-width:0;display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.arow .an{min-width:0}
+.arow .av{font-family:var(--mono);font-size:.9em;color:var(--muted);text-align:right;white-space:nowrap}
+.arow .btn{min-width:76px;font-family:var(--mono)}
+.arow .asm{display:flex;gap:4px}
+.arow .asm .btn{min-width:48px}
+@media (max-width:520px){.apre{grid-template-columns:repeat(3,minmax(0,1fr))}.arow .alab{flex-direction:column;align-items:flex-start;gap:2px}.arow .av{text-align:left}}
 .tree{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .node{border:1px solid var(--line2);border-radius:var(--radius);padding:10px;background:var(--btn-bg);display:flex;flex-direction:column;gap:4px;text-align:left;min-height:44px}
 .node b{font-size:.95em}
@@ -706,7 +721,7 @@ textarea.save{width:100%;min-height:90px;margin-top:10px;background:var(--card);
   <div class="dback" id="dBack"></div>
   <aside class="dpanel" role="dialog" aria-modal="true" aria-label="Héritage et options">
     <div class="dhead">
-      <div class="dtabs"><button data-d="heritage" class="on">Héritage</button><button data-d="options">Options</button></div>
+      <div class="dtabs"><button data-d="heritage" class="on">Héritage</button><button data-d="options">Options</button><button data-d="admin" hidden>Admin</button></div>
       <button class="dclose" id="dClose" aria-label="Fermer">✕</button>
     </div>
     <div class="dbody">
@@ -747,7 +762,12 @@ textarea.save{width:100%;min-height:90px;margin-top:10px;background:var(--card);
         <section class="card"><div class="hd"><span class="t">Recommencer</span></div><div class="bd">
           <div class="acts" style="margin-top:0"><button class="btn sm" id="btnResetRun">Recommencer cet univers</button><button class="btn sm" id="btnHard" style="color:var(--crit);border-color:var(--crit)">Tout effacer</button></div>
         </div></section>
+        <section class="card"><div class="hd"><span class="t">Administrateur</span></div><div class="bd">
+          <p class="hint" style="margin:0 0 10px" id="admEntryTxt">Réservé au créateur du jeu. Protégé par un code.</p>
+          <div class="acts" style="margin-top:0"><button class="btn sm" id="btnAdmin">Accès administrateur</button></div>
+        </div></section>
       </div>
+      <div class="dp" id="pAdmin"></div>
     </div>
   </aside>
 </div>
@@ -760,5 +780,6 @@ textarea.save{width:100%;min-height:90px;margin-top:10px;background:var(--card);
 <script src="audio.js"></script>
 <script src="ui.js"></script>
 <script src="cloud.js"></script>
+<script src="admin.js"></script>
 </body>
 </html>

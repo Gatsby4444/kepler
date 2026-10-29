@@ -130,10 +130,11 @@ function openDrawer(tab) {
   if (ui.drawer === "heritage") ui.seenAch = Object.keys(meta.ach).length + Object.keys(state.ach).length;
   hidePop(); renderHeritage(true); renderOptions();
   if (window.KeplerCloud && window.KeplerCloud.render) window.KeplerCloud.render();
+  if (ui.drawer === "admin" && window.KeplerAdmin) window.KeplerAdmin.render();
   var c = el("dClose"); try { c.focus({ preventScroll: true }); } catch (e) { c.focus(); }
   qa(".dbody")[0].scrollTop = 0;
 }
-function closeDrawer() { el("drawer").hidden = true; }
+function closeDrawer() { el("drawer").hidden = true; if (window.KeplerAdmin) window.KeplerAdmin.onClose(); }
 function setTheme(t) {
   if (THEMES.indexOf(t) < 0) return;
   ui.theme = t; document.documentElement.setAttribute("data-theme", t); saveUi(); if (KA) KA.setTimbre(t);
@@ -989,6 +990,7 @@ function boot() {
 }
 window.__kepler = { get state() { return state; }, get meta() { return meta; }, fast: function (sec) { var n = Math.round(sec / 0.1); for (var i = 0; i < n && !state.ended; i++) K.tick(state, 0.1); drainEvents(); renderAll(true); }, view: setView, render: renderAll, newUniverse: newUniverse,
   theme: setTheme, music: setMusic, audio: function () { return KA ? Object.assign({ level: KA.level(), peak: KA.level(true) }, KA.state) : null; }, drawer: openDrawer, closeDrawer: closeDrawer, snapshot: snapshot, loadSave: loadSaveObjects, save: save,
+  names: RN, resList: resList,
   ui: { toast: toast, openModal: openModal, closeModal: closeModal, fmt: fmt, dur: dur, clock: clock, confirm: confirmBox } };
 if (window.claude && window.claude.hot) {
   window.claude.hot.snapshot(function () { save(); return {}; });
