@@ -129,7 +129,6 @@
   }
 
   /* ---------------- les cinq pièces ---------------- */
-  // Chaque pièce : tempo, accords (notes MIDI), mesures par accord, et une fonction appelée à chaque double croche.
   // Chaque pièce : tempo, deux suites d'accords (A et B), mesures par accord, et une fonction appelée à chaque
   // double croche. Forme en boucle : A, A, B, puis A dépouillé (sans percussions) pour respirer.
   var SONGS = {
