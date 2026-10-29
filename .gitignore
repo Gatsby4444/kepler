@@ -1,0 +1,4 @@
+node_modules/
+_test.html
+.DS_Store
+.vercel/
