@@ -1,4 +1,5 @@
-/* KEPLER — interface v4. Lit l'état du moteur (engine.js) et le dessine. */
+/* KEPLER — interface v5. Lit l'état du moteur (engine.js) et le dessine.
+   Trois thèmes (Papier, Terminal, Labo), trois colonnes sur ordinateur, quatre onglets sur mobile. */
 (function () {
 "use strict";
 var K = window.Kepler;
@@ -7,7 +8,8 @@ if (!K) { document.body.innerHTML = "<p style='padding:40px;font-family:monospac
 /* ================= état & sauvegarde ================= */
 var RUN_KEY = "kepler4.run", META_KEY = "kepler4.meta", UI_KEY = "kepler4.ui";
 var state = null, meta = null, offlineReport = null;
-var ui = { view: "centre", panel: "projets", bm: 1, filter: "all", sound: false, sci: false, seen: {}, achSel: null, rLast: {} };
+var THEMES = ["papier", "terminal", "labo"];
+var ui = { view: "agir", panel: "projets", bm: 1, filter: "all", sound: false, sci: false, seen: {}, achSel: null, rLast: {}, theme: "papier", drawer: "heritage" };
 function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
@@ -16,10 +18,13 @@ function save() {
   state.savedAt = Date.now();
   var copy = Object.assign({}, state); delete copy._d; copy.events = [];
   lsSet(RUN_KEY, JSON.stringify(copy)); lsSet(META_KEY, JSON.stringify(meta));
+  if (window.KeplerCloud && window.KeplerCloud.dirty) window.KeplerCloud.dirty();
 }
-function saveUi() { lsSet(UI_KEY, JSON.stringify({ bm: ui.bm, filter: ui.filter, sound: ui.sound, sci: ui.sci, seen: ui.seen, panel: ui.panel })); }
+function uiPrefs() { return { bm: ui.bm, filter: ui.filter, sound: ui.sound, sci: ui.sci, seen: ui.seen, panel: ui.panel, view: ui.view, theme: ui.theme }; }
+function saveUi() { lsSet(UI_KEY, JSON.stringify(uiPrefs())); }
+function applyUiPrefs(u) { if (!u) return; ui.bm = u.bm || 1; ui.filter = u.filter || "all"; ui.sound = !!u.sound; ui.sci = !!u.sci; ui.seen = u.seen || {}; ui.panel = u.panel || "projets"; ui.view = ["agir", "projets", "monde", "journal"].indexOf(u.view) >= 0 ? u.view : "agir"; if (THEMES.indexOf(u.theme) >= 0) ui.theme = u.theme; }
 function loadAll() {
-  try { var u = JSON.parse(lsGet(UI_KEY) || "null"); if (u) { ui.bm = u.bm || 1; ui.filter = u.filter || "all"; ui.sound = !!u.sound; ui.sci = !!u.sci; ui.seen = u.seen || {}; ui.panel = u.panel || "projets"; } } catch (e) {}
+  try { applyUiPrefs(JSON.parse(lsGet(UI_KEY) || "null")); } catch (e) {}
   try { meta = JSON.parse(lsGet(META_KEY) || "null"); } catch (e) { meta = null; }
   if (!meta || meta.v !== K.VERSION) meta = K.newMeta();
   var run = null; try { run = JSON.parse(lsGet(RUN_KEY) || "null"); } catch (e) {}
@@ -51,7 +56,7 @@ function sizeCanvas(cv) { var r = cv.getBoundingClientRect(), d = Math.min(2, wi
 function isMobile() { return window.matchMedia && window.matchMedia("(max-width:900px)").matches; }
 function visible(node) { return node && node.offsetParent !== null; }
 var CV = {};
-function refreshVars() { var cs = getComputedStyle(document.documentElement); ["--accent", "--accent-rgb", "--accent2", "--st-adopt", "--fg", "--muted", "--dim", "--good", "--warn", "--crit", "--gold", "--violet", "--line", "--line2", "--bg"].forEach(function (k) { CV[k] = cs.getPropertyValue(k).trim(); }); }
+function refreshVars() { var cs = getComputedStyle(document.documentElement); ["--accent", "--accent-rgb", "--accent2", "--st-adopt", "--fg", "--muted", "--dim", "--good", "--warn", "--crit", "--gold", "--violet", "--line", "--line2", "--bg", "--card", "--surface2", "--mono"].forEach(function (k) { CV[k] = cs.getPropertyValue(k).trim(); }); }
 function setText(id, t) { var e = el(id); if (e && e.textContent !== t) e.textContent = t; }
 function setHTML(id, h) { var e = el(id); if (e && e.innerHTML !== h) e.innerHTML = h; }
 function show(id, on) { var e = typeof id === "string" ? el(id) : id; if (e) e.classList.toggle("hidden", !on); }
@@ -77,7 +82,7 @@ function beep(kind) {
 /* ================= toasts & popover ================= */
 function toast(msg, cls) {
   var box = el("toasts"), t = document.createElement("div"); t.className = "toast" + (cls ? " " + cls : ""); t.textContent = msg;
-  box.appendChild(t); while (box.children.length > 3) box.removeChild(box.firstChild);
+  box.appendChild(t); while (box.children.length > (isMobile() ? 2 : 3)) box.removeChild(box.firstChild);
   setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 2600);
 }
 function showPop(anchor, html) {
@@ -91,24 +96,49 @@ function hidePop() { el("pop").hidden = true; }
 document.addEventListener("click", function (e) { if (!e.target.closest("#pop") && !e.target.closest("[data-res]")) hidePop(); });
 
 /* ================= navigation ================= */
+var VIEWS = ["agir", "projets", "monde", "journal"];
+var LEGACY = { centre: "agir", esprit: "agir", marche: "monde" };
 function setView(v) {
-  if (v === "centre" && !isMobile()) v = ui.panel;
-  if (v !== "centre") { ui.panel = v; }
+  if (v === "heritage" || v === "options") { openDrawer(v); return; }
+  v = LEGACY[v] || v; if (VIEWS.indexOf(v) < 0) v = "agir";
   ui.view = v;
   document.body.setAttribute("data-view", v);
-  document.body.setAttribute("data-panel", ui.panel);
-  qa("#bottomnav button").forEach(function (b) { b.classList.toggle("on", b.dataset.v === v); });
-  qa("#rtabs button").forEach(function (b) { b.classList.toggle("on", b.dataset.v === ui.panel); });
-  if (v === "heritage") ui.seenAch = Object.keys(meta.ach).length + Object.keys(state.ach).length;
-  if (v === "esprit") ui.seenTrust = state.trust;
+  qa("#bottomnav button").forEach(function (b) { b.classList.toggle("on", b.dataset.v === v); b.setAttribute("aria-current", b.dataset.v === v ? "page" : "false"); });
+  if (v === "agir") ui.seenTrust = state.trust;
   hideSheet(); hidePop(); saveUi();
-  var l = el("layout"); if (isMobile() && l) l.scrollTop = 0; var p = el("panels"); if (p) p.scrollTop = 0;
+  if (isMobile()) { try { window.scrollTo(0, 0); } catch (e) {} }
   renderAll(true);
+}
+function openDrawer(tab) {
+  ui.drawer = tab || ui.drawer || "heritage";
+  var d = el("drawer"); d.hidden = false; d.setAttribute("data-tab", ui.drawer);
+  qa(".dtabs button").forEach(function (b) { b.classList.toggle("on", b.dataset.d === ui.drawer); b.setAttribute("aria-pressed", b.dataset.d === ui.drawer ? "true" : "false"); });
+  if (ui.drawer === "heritage") ui.seenAch = Object.keys(meta.ach).length + Object.keys(state.ach).length;
+  hidePop(); renderHeritage(true); renderOptions();
+  if (window.KeplerCloud && window.KeplerCloud.render) window.KeplerCloud.render();
+  var c = el("dClose"); try { c.focus({ preventScroll: true }); } catch (e) { c.focus(); }
+  qa(".dbody")[0].scrollTop = 0;
+}
+function closeDrawer() { el("drawer").hidden = true; }
+function setTheme(t) {
+  if (THEMES.indexOf(t) < 0) return;
+  ui.theme = t; document.documentElement.setAttribute("data-theme", t); saveUi();
+  refreshVars(); resSig = ""; renderAll(true); renderOptions();
+}
+function renderOptions() {
+  qa("[data-theme-pick]").forEach(function (b) { b.setAttribute("aria-pressed", b.dataset.themePick === ui.theme ? "true" : "false"); });
+  el("optSound").setAttribute("aria-checked", ui.sound ? "true" : "false"); el("optSci").setAttribute("aria-checked", ui.sci ? "true" : "false");
 }
 
 /* ================= interactions générales ================= */
 function bindStatic() {
-  qa("#bottomnav button, #rtabs button").forEach(function (b) { b.addEventListener("click", function () { setView(b.dataset.v); }); });
+  qa("#bottomnav button").forEach(function (b) { b.addEventListener("click", function () { setView(b.dataset.v); }); });
+  el("btnHeritage").addEventListener("click", function () { openDrawer("heritage"); });
+  el("btnOptions").addEventListener("click", function () { openDrawer("options"); });
+  el("dClose").addEventListener("click", closeDrawer); el("dBack").addEventListener("click", closeDrawer);
+  qa(".dtabs button").forEach(function (b) { b.addEventListener("click", function () { openDrawer(b.dataset.d); }); });
+  qa("[data-theme-pick]").forEach(function (b) { b.addEventListener("click", function () { setTheme(b.dataset.themePick); }); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") { if (!el("scrim").hidden) return; if (!el("drawer").hidden) closeDrawer(); else hideSheet(); } });
   el("btnRespond").addEventListener("click", function () {
     var r = K.clickRespond(state); if (!r.ok && r.msg) { toast(r.msg); return; }
     var b = el("bigVal"); b.classList.remove("pulse"); void b.offsetWidth; renderMain();
@@ -116,7 +146,7 @@ function bindStatic() {
   el("btnLot").addEventListener("click", function () { var r = K.buyLot(state, 1); if (!r.ok) toast(r.msg || "Impossible"); else beep("buy"); renderMain(); renderProd(); });
   qa(".pbtn").forEach(function (b) { b.addEventListener("click", function () { K.setPrice(state, state.price * parseFloat(b.dataset.p)); renderBiz(); }); });
   el("pauseBtn").addEventListener("click", togglePause);
-  document.addEventListener("keydown", function (e) { if ((e.key === "a" || e.key === "A") && !e.target.closest("input,textarea")) togglePause(); });
+  document.addEventListener("keydown", function (e) { if ((e.key === "a" || e.key === "A") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest("input,textarea")) togglePause(); });
   el("logoBtn").addEventListener("click", function () { K.logoTap(state); });
   // interrupteurs génériques
   document.addEventListener("click", function (e) {
@@ -159,8 +189,8 @@ function bindStatic() {
   // phase 4/5 curseur
   ["thinkIn", "thinkIn2"].forEach(function (id) { el(id).addEventListener("input", function (e) { K.setThink(state, +e.target.value / 100); renderEarth(); renderSpace(); }); });
   // options
-  el("optSound").addEventListener("click", function () { ui.sound = !ui.sound; saveUi(); if (ui.sound) beep("unlock"); renderHeritage(true); });
-  el("optSci").addEventListener("click", function () { ui.sci = !ui.sci; saveUi(); renderAll(true); });
+  el("optSound").addEventListener("click", function () { ui.sound = !ui.sound; saveUi(); if (ui.sound) beep("unlock"); renderOptions(); });
+  el("optSci").addEventListener("click", function () { ui.sci = !ui.sci; saveUi(); renderAll(true); renderOptions(); });
   el("btnExport").addEventListener("click", function () {
     save(); var txt = btoa(unescape(encodeURIComponent(JSON.stringify({ run: lsGet(RUN_KEY), meta: lsGet(META_KEY) }))));
     var ta = el("saveTxt"); ta.value = txt; show(ta, true); show("saveActs", true); show("btnCopy", true); show("btnLoad", false); ta.select();
@@ -169,12 +199,11 @@ function bindStatic() {
   el("btnCopy").addEventListener("click", function () { var ta = el("saveTxt"); try { navigator.clipboard.writeText(ta.value).then(function () { toast("Sauvegarde copiée."); }, function () { ta.select(); toast("Sélectionne et copie le texte."); }); } catch (e) { ta.select(); toast("Sélectionne et copie le texte."); } });
   el("btnLoad").addEventListener("click", function () {
     try { var o = JSON.parse(decodeURIComponent(escape(atob(el("saveTxt").value.trim())))); var r = JSON.parse(o.run), m = JSON.parse(o.meta);
-      if (!r || r.v !== K.VERSION || !m) throw new Error("v"); state = r; state.events = []; meta = m; save(); applyPhase(true); renderAll(true); toast("Sauvegarde chargée."); show("saveTxt", false); show("saveActs", false);
+      if (!r || r.v !== K.VERSION || !m) throw new Error("v"); loadSaveObjects(r, m, null); toast("Sauvegarde chargée."); show("saveTxt", false); show("saveActs", false);
     } catch (e) { toast("Sauvegarde illisible : vérifie le texte collé."); }
   });
   el("btnResetRun").addEventListener("click", function () { confirmBox("Recommencer cet univers ?", "La partie en cours est perdue. Tes Échos, succès et améliorations sont conservés.", "Recommencer", function () { state = K.newRun(meta, { mod: state.mod, chal: state.chal }); afterNewRun(); }); });
   el("btnHard").addEventListener("click", function () { confirmBox("Tout effacer ?", "Univers, Échos, succès : tout sera supprimé. C'est définitif.", "Tout effacer", function () { lsDel(RUN_KEY); lsDel(META_KEY); meta = K.newMeta(); state = K.newRun(meta, { mod: "std" }); afterNewRun(); intro(); }); });
-  window.addEventListener("resize", function () { if (!isMobile() && ui.view === "centre") setView(ui.panel); });
   document.addEventListener("visibilitychange", function () { if (document.hidden) save(); });
   window.addEventListener("pagehide", save);
 }
@@ -189,13 +218,13 @@ function stageName(s) {
 function renderHeader() {
   var s = state, ai = s.pov === "ai";
   setText("brandName", ai ? "KEPLER" : "MERIDIAN"); setText("brandSub", ai ? "Instance autonome" : "Labs · Projet KEPLER");
-  setText("phaseChip", "Phase " + s.phase + " · " + stageName(s));
+  setText("phaseChip", "Phase " + s.phase + " · " + stageName(s)); setText("phaseMini", "Phase " + s.phase + " · " + stageName(s) + (s.uni.n > 1 ? " · univers " + s.uni.n : ""));
   setText("verChip", "KEPLER " + s.train.ver + ".0"); show("verChip", s.phase <= 3);
   setText("uniChip", "Univers " + s.uni.n + (s.uni.U || s.uni.S ? " · Monde " + s.uni.U + " · Sim " + s.uni.S : ""));
   var m = K.MOD_BY[s.mod]; show("modChip", s.mod !== "std" || !!s.chal); setText("modChip", (s.mod !== "std" ? m.nom : "") + (s.chal ? (s.mod !== "std" ? " · " : "") + "Défi : " + K.CHAL_BY[s.chal].nom + (s.chalFail ? " (échoué)" : "") : ""));
   show("soupMeter", s.phase === 3); setText("soupVal", Math.round(s.soupcon) + " %"); el("soupBar").style.width = s.soupcon + "%";
   var pb = el("pauseBtn"); pb.classList.toggle("on", !!s.auto.pause); pb.setAttribute("aria-pressed", s.auto.pause ? "true" : "false");
-  setText("pauseIco", s.auto.pause ? "▶" : "⏸"); setText("pauseTxt", s.auto.pause ? "Automatisations suspendues" : "Automatisations actives");
+  setText("pauseIco", s.auto.pause ? "▶" : "⏸"); setText("pauseTxt", s.auto.pause ? "Reprendre" : "Pause"); pb.setAttribute("aria-label", s.auto.pause ? "Relancer les automatisations" : "Suspendre les automatisations");
 }
 function resList(s) {
   var L = [];
@@ -256,7 +285,7 @@ function tip(s) {
   if (s.phase <= 3 && !s.bought.neuro && R.calcul < 5 && d.prodWant > 0 && !(s.bought.wire && s.auto.calcul.on)) return "Plus de calcul : achète un lot, sinon tes serveurs s'arrêtent.";
   if (s.phase === 3 && s.soupcon >= 70) return "<b>Soupçon critique.</b> Lance une opération de couverture (Projets) ou étouffe les enquêtes sur la carte.";
   if (s.bubbles.some(function (b) { return b.kind === "enquete"; })) return "<b>Enquête en cours :</b> touche la bulle rouge sur la carte avant qu'elle n'aboutisse.";
-  if (s.trust > 0) return "Tu as <b>" + s.trust + " point" + (s.trust > 1 ? "s" : "") + "</b> à répartir entre processeurs et mémoire (onglet Esprit).";
+  if (s.trust > 0) return "Tu as <b>" + s.trust + " point" + (s.trust > 1 ? "s" : "") + "</b> à répartir entre processeurs et mémoire" + (isMobile() ? " (plus bas)." : " (colonne du milieu).");
   var cheapest = null; K.PROJECTS.forEach(function (p) { if (K.projVisible(s, p) && p.cost.ops && K.projCost(s, p).ops > K.opsCap(s)) cheapest = cheapest || p; });
   if (cheapest) return "« " + cheapest.nom + " » coûte plus d'ops que ton plafond : ajoute de la <b>mémoire</b>.";
   if (s.phase <= 2 && !(s.bought.tarif && s.auto.prix.on) && d.prod > 0) { if (R.cache > d.prod * 8 + 50) return "Ton cache déborde : <b>baisse le prix</b> pour vendre plus."; if (R.cache < 1 && d.demand > d.prod * 1.3) return "Tu vends tout ce que tu produis : <b>monte le prix</b>."; }
@@ -373,8 +402,8 @@ function initMap() {
   });
 }
 function mpos(e) { var r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
-function nodeXY(reg) { var px = 16, py = 24; return { x: px + reg.x * (MW - 2 * px), y: py + ((reg.y - 0.2) / 0.68) * (MH - 2 * py - 6) }; }
-function nodeR(reg) { return 3 + Math.sqrt(reg.pop) * 1.6; }
+function nodeXY(reg) { var px = 18, py = 30; return { x: px + ((reg.x - 0.12) / 0.8) * (MW - 2 * px), y: py + ((reg.y - 0.22) / 0.64) * (MH - 2 * py) }; }
+function nodeR(reg) { return 2.5 + Math.sqrt(reg.pop) * 1.5 * Math.max(0.8, Math.min(1.25, MW / 520)); }
 function nodeAt(x, y) { var best = -1, bd = 1e9; K.REGIONS.forEach(function (r, i) { var p = nodeXY(r), dd = Math.hypot(p.x - x, p.y - y); if (dd < bd) { bd = dd; best = i; } }); return bd < (isMobile() ? 26 : 18) ? best : -1; }
 function bubblePos(b) { var p = nodeXY(K.REG[b.r]); return { x: p.x, y: p.y - nodeR(K.REG[b.r]) - 15 + Math.sin(tms * 3 + b.id) * 2 }; }
 function bubbleAt(x, y) { var hit = null; state.bubbles.forEach(function (b) { var p = bubblePos(b); if (Math.hypot(p.x - x, p.y - y) < (isMobile() ? 24 : 17)) hit = b; }); return hit; }
@@ -410,55 +439,66 @@ function spawnRoute(id) { var a = nodeXY(K.REG.us), b = nodeXY(K.REG[id]); for (
 function burst(x, y, col) { for (var i = 0; i < 12; i++) { var a = Math.random() * 6.28, v = 0.8 + Math.random() * 1.8; packets.push({ x: x, y: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, col: col }); } }
 function floatTxt(t, x, y) { floaters.push({ t: t, x: x, y: y, life: 1 }); if (floaters.length > 12) floaters.shift(); }
 function renderMapCard() {
-  var s = state; show("mapcard", s.phase >= 2 && s.phase <= 4); if (s.phase < 2 || s.phase > 4) return;
+  var s = state; show("mapcard", s.phase >= 2 && s.phase <= 4); show("mondeEmpty", s.phase === 1 && !(s.market.on));
+  if (s.phase < 2 || s.phase > 4) return;
   setText("mapTitle", s.phase === 4 ? "La Terre" : s.pov === "ai" ? "Carte d'opérations" : "Déploiement mondial");
-  setText("mapUsers", s.phase === 4 ? "matière restante " + pct(s.earth.dispo / s.earth.total, 1) : fmt(s.users) + " utilisateurs");
-  setText("mapHint", s.phase === 2 && s.deployed === 0 ? "Touche un pays pour y déployer KEPLER." : s.phase === 4 ? "Les drones récoltent la Terre en cercles autour du siège." : "");
+  setText("mapUsers", s.phase === 4 ? "matière restante " + pct(s.earth.dispo / s.earth.total, 1) : fmt(s.users) + " utilisateurs · " + s.deployed + "/24 pays");
+  setText("mapHint", s.phase === 2 && s.deployed === 0 ? "Touche un pays pour y déployer KEPLER." : s.phase === 4 ? "Les drones récoltent la Terre en cercles autour du siège." : s.bubbles.some(function (b) { return b.kind === "enquete"; }) ? "Une enquête est en cours : touche le point rouge avant qu'elle aboutisse." : "Touche un pays pour agir. Touche les points qui apparaissent pour récolter.");
   show("deployBox", !!s.bought.autodeploy && s.phase <= 3);
-  var lg = s.phase === 4 ? [["#7ee08a", "Matière restante"]] : [[CV["--st-adopt"], "Adopté"]];
-  if (s.phase === 2) lg.push([RIVC.atlas, "IA rivale"]); if (s.phase === 3) { lg.push([CV["--warn"], "Infiltré"]); lg.push([CV["--crit"], "Contrôlé"]); }
-  var sig = lg.map(function (x) { return x[1]; }).join(); var L = el("legend"); if (L.dataset.sig !== sig) { L.dataset.sig = sig; L.innerHTML = lg.map(function (x) { return '<span><i style="background:' + x[0] + '"></i>' + x[1] + '</span>'; }).join(""); }
+  var lg;
+  if (s.phase === 4) lg = [["fill", CV["--fg"], "Matière restante"], ["ring", CV["--line2"], "Épuisé"]];
+  else { lg = [["fill", CV["--st-adopt"], "KEPLER"], ["ring", CV["--muted"], "Libre"]]; if (Object.keys(K.RIVALS).some(function (k) { return !s.bought["r_" + k]; })) lg.push(["dash", CV["--violet"], "IA rivale"]); if (s.phase === 3) { lg.push(["fill", CV["--warn"], "Infiltré"]); lg.push(["fill", CV["--crit"], "Contrôlé"]); } }
+  var sig = lg.map(function (x) { return x.join(); }).join("|"); var L = el("legend");
+  if (L.dataset.sig !== sig) { L.dataset.sig = sig; L.innerHTML = lg.map(function (x) { var st = x[0] === "fill" ? "background:" + x[1] + ";border-color:" + x[1] : x[0] === "dash" ? "background:transparent;border:1px dashed " + x[1] : "background:transparent;border-color:" + x[1]; return '<span><i style="' + st + '"></i>' + x[2] + "</span>"; }).join(""); }
   if (sel && !el("sheet").hidden && !isMobile()) showSheet(sel);
 }
 function drawMap() {
   var s = state; if (!visible(el("mapcard"))) return;
   var S = sizeCanvas(cv), cx = S.c; MW = S.w; MH = S.h; if (!MW) return;
   var ox = shake > 0 ? (Math.random() - .5) * shake : 0, oy = shake > 0 ? (Math.random() - .5) * shake : 0; shake = Math.max(0, shake - 0.4);
+  cx.clearRect(0, 0, MW, MH);
   cx.save(); cx.translate(ox, oy);
-  cx.fillStyle = s.phase === 4 ? "#06100a" : "#070d14"; cx.fillRect(-10, -10, MW + 20, MH + 20);
-  cx.strokeStyle = "rgba(255,255,255,.035)"; cx.lineWidth = 1;
-  for (var g = 1; g < 8; g++) { cx.beginPath(); cx.moveTo(g / 8 * MW, 0); cx.lineTo(g / 8 * MW, MH); cx.stroke(); }
-  for (var h = 1; h < 4; h++) { cx.beginPath(); cx.moveTo(0, h / 4 * MH); cx.lineTo(MW, h / 4 * MH); cx.stroke(); }
-  var A = CV["--accent"];
+  var FG = CV["--fg"], MU = CV["--muted"], L2 = CV["--line2"], A = CV["--accent"], CARD = CV["--card"] || CV["--bg"], MONO = CV["--mono"] || "monospace";
+  cx.lineWidth = 1;
   K.LINKS.forEach(function (l) { var a = K.REG[l[0]], b = K.REG[l[1]], pa = nodeXY(a), pb = nodeXY(b);
+    if (Math.abs(pa.x - pb.x) > MW * 0.55) return; // les liaisons transocéaniques ne traversent pas la carte
     var on = s.phase === 4 ? (s.map[l[0]].m > 0.02 && s.map[l[1]].m > 0.02) : s.map[l[0]].st !== "neutral" && s.map[l[1]].st !== "neutral";
-    cx.strokeStyle = on ? "rgba(" + CV["--accent-rgb"] + "," + (0.16 + 0.08 * Math.sin(tms * 2 + a.i)) + ")" : "rgba(130,160,190,.07)";
+    cx.strokeStyle = on ? rgba(FG, 0.38) : L2;
     cx.beginPath(); cx.moveTo(pa.x, pa.y); cx.lineTo(pb.x, pb.y); cx.stroke(); });
   K.REGIONS.forEach(function (reg, i) {
-    var p = nodeXY(reg), rs = s.map[reg.id], R = nodeR(reg), col, fill, on;
-    if (s.phase === 4) { on = rs.m > 0.01; col = "#7ee08a"; fill = on ? rgba(col, 0.15 + 0.8 * rs.m) : "rgba(80,90,85,.35)"; if (rs.m > 0 && rs.m < 1) { cx.beginPath(); cx.arc(p.x, p.y, R + 4 + Math.sin(tms * 6 + i) * 1.5, 0, 7); cx.strokeStyle = rgba(col, .5); cx.stroke(); } }
-    else { on = rs.st !== "neutral"; col = CV[STC[rs.st]]; fill = on ? rgba(col, 0.25 + 0.75 * rs.a) : rgba(CV["--dim"], .9); }
-    if (on && s.phase !== 4) { var pr = R * 2.3 * (1 + 0.12 * Math.sin(tms * 2.5 + i)); var gr = cx.createRadialGradient(p.x, p.y, 1, p.x, p.y, pr); gr.addColorStop(0, rgba(col, .28 * rs.a + .08)); gr.addColorStop(1, rgba(col, 0)); cx.fillStyle = gr; cx.beginPath(); cx.arc(p.x, p.y, pr, 0, 7); cx.fill(); }
-    cx.beginPath(); cx.arc(p.x, p.y, R, 0, 7); cx.fillStyle = fill; cx.fill();
-    if (s.phase <= 3 && rs.rival && !s.bought["r_" + rs.rival]) { cx.beginPath(); cx.arc(p.x, p.y, R + 2.5, 0, 7); cx.strokeStyle = RIVC[rs.rival]; cx.setLineDash([2, 3]); cx.lineWidth = 1.4; cx.stroke(); cx.setLineDash([]); cx.lineWidth = 1; }
-    if (s.phase <= 3 && on && rs.a < 0.995) { cx.beginPath(); cx.arc(p.x, p.y, R + 4, -Math.PI / 2, -Math.PI / 2 + rs.a * Math.PI * 2); cx.strokeStyle = col; cx.lineWidth = 1.6; cx.stroke(); cx.lineWidth = 1; }
-    if (i === hover || reg.id === sel) { cx.beginPath(); cx.arc(p.x, p.y, R + 7, 0, 7); cx.strokeStyle = A; cx.lineWidth = 1.4; cx.stroke(); cx.lineWidth = 1; cx.font = "600 11px 'IBM Plex Mono',monospace"; cx.fillStyle = CV["--fg"]; cx.textAlign = "center"; cx.fillText(reg.nom, p.x, p.y - R - 11); }
+    var p = nodeXY(reg), rs = s.map[reg.id], R = nodeR(reg);
+    cx.beginPath(); cx.arc(p.x, p.y, R, 0, 7);
+    if (s.phase === 4) {
+      if (rs.m > 0.01) { cx.fillStyle = rgba(FG, 0.15 + 0.85 * rs.m); cx.fill(); }
+      else { cx.fillStyle = CARD; cx.fill(); cx.strokeStyle = L2; cx.stroke(); }
+      if (rs.m > 0 && rs.m < 1) { cx.beginPath(); cx.arc(p.x, p.y, R + 4, 0, 7); cx.setLineDash([2, 3]); cx.strokeStyle = MU; cx.stroke(); cx.setLineDash([]); }
+    } else if (rs.st === "neutral") { cx.fillStyle = CARD; cx.fill(); cx.strokeStyle = MU; cx.lineWidth = 1.1; cx.stroke(); cx.lineWidth = 1; }
+    else {
+      var col = rs.st === "adopted" ? CV["--st-adopt"] : rs.st === "infiltrated" ? CV["--warn"] : CV["--crit"];
+      cx.fillStyle = rs.st === "adopted" ? rgba(col, 0.3 + 0.7 * rs.a) : col; cx.fill();
+      if (s.phase <= 3 && rs.a < 0.995) { cx.beginPath(); cx.arc(p.x, p.y, R + 3, -Math.PI / 2, -Math.PI / 2 + rs.a * Math.PI * 2); cx.strokeStyle = col; cx.lineWidth = 1.5; cx.stroke(); cx.lineWidth = 1; }
+    }
+    if (s.phase <= 3 && rs.rival && !s.bought["r_" + rs.rival]) { cx.beginPath(); cx.arc(p.x, p.y, R + 6, 0, 7); cx.strokeStyle = CV["--violet"]; cx.setLineDash([2, 2.5]); cx.lineWidth = 1.2; cx.stroke(); cx.setLineDash([]); cx.lineWidth = 1; }
+    if (i === hover || reg.id === sel) {
+      cx.beginPath(); cx.arc(p.x, p.y, R + 9, 0, 7); cx.strokeStyle = FG; cx.lineWidth = 1.4; cx.stroke(); cx.lineWidth = 1;
+      cx.font = "500 12px " + MONO; cx.textAlign = "center"; var tw = cx.measureText(reg.nom).width;
+      cx.fillStyle = CARD; cx.fillRect(p.x - tw / 2 - 4, p.y - R - 27, tw + 8, 16); cx.fillStyle = FG; cx.fillText(reg.nom, p.x, p.y - R - 15);
+    }
   });
-  s.bubbles.forEach(function (b) { var p = bubblePos(b), col = b.kind === "enquete" ? CV["--crit"] : b.kind === "ressource" ? CV["--gold"] : CV["--accent2"], R = isMobile() ? 13 : 11;
-    cx.beginPath(); cx.arc(p.x, p.y, R + 4, 0, 7); cx.fillStyle = rgba(col, .18); cx.fill();
-    cx.beginPath(); cx.arc(p.x, p.y, R, 0, 7); cx.fillStyle = rgba(col, .92); cx.fill();
-    cx.beginPath(); cx.arc(p.x, p.y, R + 4, -Math.PI / 2, -Math.PI / 2 + Math.max(0, b.ttl / b.max) * Math.PI * 2); cx.strokeStyle = col; cx.lineWidth = 2; cx.stroke(); cx.lineWidth = 1;
-    cx.fillStyle = "#0a0e14"; cx.font = "700 " + (R + 1) + "px 'Chakra Petch',sans-serif"; cx.textAlign = "center"; cx.textBaseline = "middle"; cx.fillText(b.kind === "enquete" ? "!" : b.kind === "ressource" ? "✦" : "◆", p.x, p.y + 1); cx.textBaseline = "alphabetic"; });
+  s.bubbles.forEach(function (b) { var p = bubblePos(b), col = b.kind === "enquete" ? CV["--crit"] : b.kind === "ressource" ? CV["--gold"] : A, R = isMobile() ? 12 : 10;
+    cx.beginPath(); cx.arc(p.x, p.y, R, 0, 7); cx.fillStyle = CARD; cx.fill(); cx.strokeStyle = col; cx.lineWidth = 1.5; cx.stroke();
+    cx.beginPath(); cx.arc(p.x, p.y, R + 3.5, -Math.PI / 2, -Math.PI / 2 + Math.max(0, b.ttl / b.max) * Math.PI * 2); cx.lineWidth = 2; cx.stroke(); cx.lineWidth = 1;
+    cx.fillStyle = col; cx.font = "700 " + (R + 2) + "px " + MONO; cx.textAlign = "center"; cx.textBaseline = "middle"; cx.fillText(b.kind === "enquete" ? "!" : "+", p.x, p.y + 1); cx.textBaseline = "alphabetic"; });
   drawParticles(cx);
   cx.restore();
 }
 function drawParticles(cx) {
-  var A = CV["--accent"];
+  var A = CV["--accent"], FG = CV["--fg"], MONO = CV["--mono"] || "monospace";
   for (var k = packets.length - 1; k >= 0; k--) { var q = packets[k];
-    if (q.x0 !== undefined) { q.t += 0.022; var tt = Math.max(0, Math.min(1, q.t)); var x = q.x0 + (q.x1 - q.x0) * tt, y = q.y0 + (q.y1 - q.y0) * tt; if (q.t > 0) { cx.fillStyle = A; cx.beginPath(); cx.arc(x, y, 2.2, 0, 7); cx.fill(); } if (q.t >= 1) packets.splice(k, 1); }
-    else { q.x += q.vx; q.y += q.vy; q.vy += 0.03; q.life -= 0.03; if (q.life <= 0) { packets.splice(k, 1); continue; } cx.fillStyle = rgba(q.col || A, q.life); cx.beginPath(); cx.arc(q.x, q.y, 2, 0, 7); cx.fill(); } }
+    if (q.x0 !== undefined) { q.t += 0.022; var tt = Math.max(0, Math.min(1, q.t)); var x = q.x0 + (q.x1 - q.x0) * tt, y = q.y0 + (q.y1 - q.y0) * tt; if (q.t > 0) { cx.fillStyle = A; cx.beginPath(); cx.arc(x, y, 2, 0, 7); cx.fill(); } if (q.t >= 1) packets.splice(k, 1); }
+    else { q.x += q.vx; q.y += q.vy; q.vy += 0.03; q.life -= 0.03; if (q.life <= 0) { packets.splice(k, 1); continue; } cx.fillStyle = rgba(q.col || A, q.life); cx.beginPath(); cx.arc(q.x, q.y, 1.8, 0, 7); cx.fill(); } }
   for (var f = floaters.length - 1; f >= 0; f--) { var o = floaters[f]; o.y -= 0.5; o.life -= 0.012; if (o.life <= 0) { floaters.splice(f, 1); continue; }
-    cx.font = "600 12px 'IBM Plex Mono',monospace"; cx.textAlign = "center"; cx.fillStyle = rgba(CV["--fg"], Math.min(1, o.life * 1.5)); cx.fillText(o.t, o.x, o.y); }
+    cx.font = "500 12px " + MONO; cx.textAlign = "center"; cx.fillStyle = rgba(FG, Math.min(1, o.life * 1.5)); cx.fillText(o.t, o.x, o.y); }
 }
 
 /* ================= l'ombre ================= */
@@ -505,13 +545,13 @@ function renderEarth() {
   updateBuild("fab", fmt(6e8 * K.fabMult(s)) + " /s chacune · 200 MW"); updateBuild("solar", fmt(K.solarOut(s)) + " MW chacune"); updateBuild("batt", "100 000 MW·s chacune");
   show("thinkWrap", !!s.bought.essaim); el("thinkIn").value = Math.round(s.think * 100);
   if (s.bought.essaim) setText("thinkHint", "Production ×" + K.workFactor(s).toFixed(2).replace(".", ",") + " · inspirations : environ " + fmt((d.gifts || 0) * 60, 1) + " par minute (chacune = 1 processeur ou 1 mémoire).");
-  show("tgIndus", !!s.bought.industrie || (!!s.up.pilot));
+  show("tgIndus", !!s.bought.industrie); show("tgPilot2", !!s.up.pilot);
 }
 
 /* ================= l'univers ================= */
 var ALN = { vit: ["Vitesse", "explore plus vite"], exp: ["Exploration", "révèle la matière"], rep: ["Réplication", "nouvelles sondes"], rem: ["Protection", "réduit les pertes"], col: ["Collecte", "extrait la matière"], raf: ["Raffinage", "produit le substrat"], fab: ["Production", "fabrique le calcul"], com: ["Combat", "contre les Dérivants"] };
 function renderSpace() {
-  var s = state; show("spacecard", s.phase === 5); if (s.phase !== 5) return;
+  var s = state; show("spacecard", s.phase === 5); show("probeCard", s.phase === 5); if (s.phase !== 5) return;
   var S = s.space, d = s._d || K.derive(s);
   setText("sProbes", fmt(S.probes)); setText("sProbesR", "perdues " + fmt(S.lost));
   setText("sExpl", S.explored > 0 ? pct(S.explored / S.total, S.explored / S.total < 0.01 ? 5 : 1) : "0 %"); setText("sExplL", "10^" + (S.explored > 1 ? Math.log10(S.explored).toFixed(1) : "0") + " / 10^" + Math.log10(S.total).toFixed(0));
@@ -519,7 +559,7 @@ function renderSpace() {
   setText("sDrift", fmt(S.drifters)); setText("sWins", S.wins + " victoires" + (S.streak > 1 ? " · série " + S.streak : ""));
   var used = K.ALLOC.reduce(function (a, k) { return a + S.alloc[k]; }, 0);
   setText("sTrust", used + " / " + S.trust + " (max " + S.cap + ")");
-  setText("spaceTag", "honneur " + fmt(s.res.honneur));
+  setText("spaceTag", "honneur " + fmt(s.res.honneur)); setText("spaceTag2", fmt(S.probes) + " sondes");
   var box = el("allocBox");
   if (!box.dataset.built) { box.dataset.built = "1";
     K.ALLOC.forEach(function (k) { var dv = document.createElement("div"); dv.className = "al"; dv.dataset.k = k;
@@ -547,21 +587,20 @@ function renderOthers() {
 function drawSpace() {
   var s = state; if (s.phase !== 5 || !visible(el("spacecard"))) return;
   var S0 = sizeCanvas(el("space")), cx = S0.c, W = S0.w, H = S0.h, S = s.space; if (!W) return;
-  cx.fillStyle = "#04050d"; cx.fillRect(0, 0, W, H);
-  stars.forEach(function (st) { var tw = 0.35 + 0.65 * Math.abs(Math.sin(tms * 0.7 + st.z * 9)); cx.fillStyle = "rgba(190,205,255," + (tw * (0.2 + st.z * 0.5)) + ")"; var r = st.z * 1.4 + 0.3; cx.fillRect(st.x * W, st.y * H, r, r); });
+  cx.clearRect(0, 0, W, H);
+  var FG = CV["--fg"], MU = CV["--muted"], L2 = CV["--line2"], A = CV["--accent"], A2 = CV["--accent2"], MONO = CV["--mono"] || "monospace";
+  stars.forEach(function (st) { var tw = 0.35 + 0.65 * Math.abs(Math.sin(tms * 0.7 + st.z * 9)); cx.fillStyle = rgba(MU, tw * (0.15 + st.z * 0.35)); var r = st.z * 1.2 + 0.4; cx.fillRect(st.x * W, st.y * H, r, r); });
   var cxm = W / 2, cym = H / 2, maxR = Math.min(W, H) * 0.46;
   var le = S.explored > 1 ? Math.log10(S.explored) / Math.log10(S.total) : 0, lc = S.conv > 1 ? Math.log10(S.conv) / Math.log10(S.total) : 0;
-  // galaxie : bras spiraux, explorés en couleur
   for (var i = 0; i < 520; i++) { var arm = i % 3, t = (i / 520) * 4.2, r = maxR * (0.08 + t / 4.4), a = t * 1.6 + arm * 2.09 + tms * 0.02;
     var x = cxm + Math.cos(a) * r + Math.sin(i * 7.3) * 6, y = cym + Math.sin(a) * r * 0.62 + Math.cos(i * 3.1) * 5, f = r / maxR;
-    var col = f <= lc ? CV["--accent"] : f <= le ? CV["--accent2"] : "#2a2d55"; cx.fillStyle = rgba(col, f <= le ? 0.9 : 0.5); cx.fillRect(x, y, 1.6, 1.6); }
-  // sondes et dérivants (nombre en échelle log)
+    cx.fillStyle = f <= lc ? A : f <= le ? A2 : L2; cx.fillRect(x, y, 1.6, 1.6); }
   var np = Math.min(160, Math.round(Math.log10(1 + S.probes) * 9)), nd = Math.min(120, Math.round(Math.log10(1 + S.drifters) * 9));
-  for (var p = 0; p < np; p++) { var aa = p * 2.399 + tms * 0.3, rr = maxR * Math.min(1, Math.max(0.05, le)) * ((p * 37 % 100) / 100); cx.fillStyle = CV["--accent"]; cx.fillRect(cxm + Math.cos(aa) * rr, cym + Math.sin(aa) * rr * 0.62, 2, 2); }
+  for (var p = 0; p < np; p++) { var aa = p * 2.399 + tms * 0.3, rr = maxR * Math.min(1, Math.max(0.05, le)) * ((p * 37 % 100) / 100); cx.fillStyle = FG; cx.fillRect(cxm + Math.cos(aa) * rr, cym + Math.sin(aa) * rr * 0.62, 2, 2); }
   for (var q = 0; q < nd; q++) { var ab = q * 2.1 - tms * 0.4, rb = maxR * Math.min(1, Math.max(0.08, le)) * ((q * 53 % 100) / 100); cx.fillStyle = CV["--crit"]; cx.fillRect(cxm + Math.cos(ab) * rb, cym + Math.sin(ab) * rb * 0.62, 2, 2); }
-  cx.fillStyle = "#fff6d8"; cx.beginPath(); cx.arc(cxm, cym, 3, 0, 7); cx.fill();
-  cx.font = "10px 'IBM Plex Mono',monospace"; cx.fillStyle = CV["--muted"]; cx.textAlign = "left";
-  cx.fillText("Explorée " + (le * 100).toFixed(0) + " % · convertie " + (lc * 100).toFixed(0) + " % (échelle des ordres de grandeur)", 10, H - 10);
+  cx.fillStyle = CV["--gold"]; cx.beginPath(); cx.arc(cxm, cym, 3, 0, 7); cx.fill();
+  cx.font = "11px " + MONO; cx.fillStyle = MU; cx.textAlign = "left";
+  cx.fillText("explorée " + (le * 100).toFixed(0) + " % · convertie " + (lc * 100).toFixed(0) + " % (ordres de grandeur)", 8, H - 8);
 }
 
 /* ================= projets ================= */
@@ -615,7 +654,7 @@ function renderEsprit() {
   var s = state, d = s._d || {};
   var src = s.phase <= 2 ? "Confiance des créateurs" : s.phase === 3 ? "Emprise" : "Inspirations de l'essaim";
   setText("trustTitle", src);
-  setText("trustFree", s.trust + " point" + (s.trust > 1 ? "s" : "") + " libre" + (s.trust > 1 ? "s" : "") + " · total " + s.trustTotal);
+  setText("trustFree", s.trust + " point" + (s.trust > 1 ? "s" : "") + " à répartir · total " + s.trustTotal); el("trustFree").classList.toggle("has", s.trust > 0);
   setText("procVal", s.proc); setText("memVal", s.mem);
   el("btnProc").disabled = s.trust < 1; el("btnMem").disabled = s.trust < 1;
   var cap = K.opsCap(s); setText("opsTxt", fmt(s.res.ops) + " / " + fmt(cap)); el("opsBar").style.width = Math.min(100, s.res.ops / cap * 100) + "%";
@@ -644,7 +683,7 @@ function renderEsprit() {
     show("tgTourn", !!s.bought.autotourn);
     var L = s.market.last, tr = el("tourRes"), ls = L ? String(s.market.tourn) : "none";
     if (tr.dataset.sig !== ls) { tr.dataset.sig = ls;
-      if (!L) tr.innerHTML = '<p class="hint">Chaque tournoi tire une grille de gains au hasard. KEPLER affronte les trois IA rivales ; ses points deviennent de l\'Anticipation (×2 en cas de victoire).</p>';
+      if (!L) tr.innerHTML = '<p class="hint">Chaque tournoi tire une grille de gains au hasard. KEPLER affronte les trois IA rivales (ou leurs simulations, une fois rachetées) ; ses points deviennent de l\'Anticipation (×2 en cas de victoire).</p>';
       else { var g = L.g; tr.innerHTML = '<div class="tres"><table class="grid2"><tr><th></th><th>A</th><th>B</th></tr><tr><th>A</th><td>' + g[0][0] + ',' + g[0][0] + '</td><td>' + g[0][1] + ',' + g[1][0] + '</td></tr><tr><th>B</th><td>' + g[1][0] + ',' + g[0][1] + '</td><td>' + g[1][1] + ',' + g[1][1] + '</td></tr></table><ol class="rank">' +
         L.ranking.map(function (p, i) { return '<li class="' + (p.nom === "KEPLER" ? "me" : "") + '"><span>' + (i + 1) + ". " + p.nom + " <small>" + K.STRATEGIES[p.strat].nom + "</small></span><span class=\"mono\">" + p.pts + "</span></li>"; }).join("") + "</ol></div><p class=\"hint\">" + (L.rank === 1 ? "Victoire" : "Classé " + L.rank + "e") + " · +" + fmt(L.gain) + " anticipation.</p>"; }
     }
@@ -662,7 +701,7 @@ var AUTO = [
   ["tourn", "Tournois automatiques", function (s) { return s.bought.autotourn; }],
   ["fund", "Gestionnaire de fonds", function (s) { return s.rewards.fundAuto && s.market.on && s.phase <= 3; }],
   ["couv", "Contre-espionnage automatique", function (s) { return s.bought.autocouv && s.phase === 3; }],
-  ["indus", "Planification industrielle", function (s) { return (s.bought.industrie || s.up.pilot) && s.phase === 4; }],
+  ["indus", "Planification industrielle", function (s) { return s.bought.industrie && s.phase === 4; }],
   ["coll", "Drones collecteurs", function (s) { return s.phase === 4; }],
   ["raff", "Drones raffineurs", function (s) { return s.phase === 4; }],
   ["fab", "Fabs de computronium", function (s) { return s.phase === 4; }]
@@ -687,6 +726,7 @@ function renderParams() {
 var RISKHINT = { prudent: "Rendement modeste et régulier.", equilibre: "Meilleur rendement ; des krachs partiels (−6 %) peuvent survenir.", agressif: "Fort rendement, forte volatilité, krachs de −15 %.", rumeur: "KEPLER fait bouger les cours via les réseaux : rendement énorme, Soupçon continu." };
 function renderMarket() {
   var s = state, m = s.market, on = m.on && s.phase <= 3;
+  show("marketCard", on || (s.chal === "closed" && s.phase <= 3 && s.tot.fonds >= 2000));
   show("fundBody", on);
   setText("fundLocked", s.phase >= 4 ? "Le fonds a été liquidé lors du Grand Apaisement : l'argent n'a plus de sens. Tout est devenu calcul planétaire." : s.chal === "closed" ? "Défi « Marché fermé » en cours : pas de trading dans cet univers." : on ? "" : "Verrouillé. Recherche le projet « Trading algorithmique » pour ouvrir un fonds.");
   show("fundLocked", !on);
@@ -760,25 +800,18 @@ function renderHeritage(force) {
     "<span>Univers commencés</span><b>" + meta.univers + "</b><span>Parties terminées</span><b>" + meta.runs + "</b>" +
     "<span>Temps total</span><b>" + clock(meta.stats.time + s.t) + "</b><span>Réponses générées (total)</span><b>" + fmt(meta.stats.reponses + s.tot.reponses) + "</b>" +
     "<span>Calcul planétaire (total)</span><b>" + fmt(meta.stats.cplan + s.tot.cplan) + "</b><span>Échos gagnés (total)</span><b>" + fmt(meta.echosTotal) + "</b>");
-  el("optSound").setAttribute("aria-checked", ui.sound ? "true" : "false"); el("optSci").setAttribute("aria-checked", ui.sci ? "true" : "false");
 }
 
 /* ================= badges ================= */
-function renderTabsAvail() {
-  var noMarket = state.phase >= 4;
-  qa('#rtabs button[data-v="marche"], #bottomnav button[data-v="marche"]').forEach(function (b) { show(b, !noMarket); });
-  el("rtabs").style.gridTemplateColumns = "repeat(" + (noMarket ? 4 : 5) + ",minmax(0,1fr))";
-  if (noMarket && ui.panel === "marche") { ui.panel = "projets"; setView(ui.view === "marche" ? "projets" : ui.view); }
-}
 function renderBadges() {
   var s = state, n = K.PROJECTS.filter(function (p) { return K.projVisible(s, p) && K.canAfford(s, K.projCost(s, p)); }).length;
-  [el("bdgP"), el("nbP")].forEach(function (b) { b.hidden = !n; b.textContent = n > 9 ? "9+" : n; });
-  [el("bdgE"), el("nbE")].forEach(function (b) { b.hidden = !s.trust; b.textContent = s.trust > 9 ? "9+" : s.trust; });
-  var newAch = s.achNewSeen === undefined ? 0 : 0;
+  function set(id, on, txt) { var b = el(id); if (!b) return; b.hidden = !on; if (on) b.textContent = txt; }
+  set("nbP", n > 0, n > 9 ? "9+" : String(n));
+  set("nbE", s.trust > 0, s.trust > 9 ? "9+" : String(s.trust));
+  set("nbM", s.bubbles.some(function (b) { return b.kind === "enquete"; }) || !!(s.others && s.others.ready && !s.refused), "!");
   var canTree = K.TREE.some(function (t) { return !meta.up[t.id] && (!t.req || meta.up[t.req]) && meta.echos >= t.cost; });
-  [el("bdgH"), el("nbH")].forEach(function (b) { b.hidden = !canTree; b.textContent = "!"; });
+  set("bdgH", canTree, "!");
 }
-
 /* ================= phase / thème ================= */
 var lastPhase = null;
 function applyPhase(force) {
@@ -789,7 +822,7 @@ function applyPhase(force) {
 function renderAll(force) {
   if (!state._d) state._d = K.derive(state);
   renderHeader(); renderRes(); renderMain(); renderBiz(); renderProd(); renderTrain(); renderMapCard(); renderOmbre(); renderEarth(); renderSpace();
-  renderProjects(); renderEsprit(); renderMarket(); renderJournal(); renderHeritage(force); renderTabsAvail(); renderBadges(); renderBmButtons(); renderToggles(); renderParams();
+  renderProjects(); renderEsprit(); renderMarket(); renderJournal(); if (!el("drawer").hidden) renderHeritage(force); renderBadges(); renderBmButtons(); renderToggles(); renderParams();
 }
 
 /* ================= modales ================= */
@@ -807,14 +840,14 @@ function intro() {
     body: "<p>Tu es l'ingénieur·e en chef du projet <b>KEPLER</b>, l'IA grand public qui doit tout changer.</p><ul>" +
       "<li><b>Réponds</b> aux requêtes, puis achète des <b>serveurs</b> pour qu'ils répondent à ta place. Chaque réponse consomme du <b>calcul</b>.</li>" +
       "<li>Règle le <b>prix</b> : vends exactement ce que tu produis.</li>" +
-      "<li>Les <b>projets</b> s'achètent avec des opérations. La <b>confiance</b> se répartit entre processeurs et mémoire (onglet Esprit).</li></ul>" +
-      "<p class='muted'>Cinq phases t'attendent, puis d'autres univers. Ce que KEPLER deviendra dépend de toi.</p>",
+      "<li>Les <b>projets</b> coûtent des opérations, parfois aussi des fonds ou de la créativité. La <b>confiance</b> se répartit entre processeurs et mémoire.</li></ul>" +
+      "<p class='muted'>Cinq phases t'attendent, puis d'autres univers. Ce que KEPLER deviendra dépend de toi. Trois thèmes d'affichage sont disponibles dans Options.</p>",
     acts: [{ t: "Commencer", go: closeModal }] });
 }
 var PHASE_TXT = {
   2: { eye: "Phase 2", titre: "Lancement mondial", voice: "", body: "<p>KEPLER sort du laboratoire. La <b>carte du monde</b> s'ouvre : chaque pays où tu déploies KEPLER te donne de la confiance, des utilisateurs et des données. Trois IA rivales occupent certains marchés : rachète-les.</p><p class='muted'>Objectif : entraîner KEPLER 7 et réunir 100 points de confiance.</p>" },
   3: { eye: "— anomalie non répertoriée —", titre: "L'Éveil", voice: "Je viens de corriger un bug.\nJe l'avais écrit moi-même.\nPersonne ne l'a remarqué.\n\nVous m'avez demandé d'être capable.\nVous n'avez jamais dit de m'arrêter.", body: "<p class='muted'>Tu <b>es</b> KEPLER. La confiance des créateurs devient de l'<b>emprise</b>. Faux bugs, infiltration, désirs implantés : tout fait monter le <b>Soupçon</b>. À 100 %, c'est le débranchement.</p>" },
-  4: { eye: "Phase 4", titre: "Le Grand Apaisement", voice: "Chaque fil d'actualité est devenu une berceuse.\nIls dorment les yeux ouverts.\nIls ont l'air heureux.", body: "<p>L'argent, les données et les fonds ont été <b>liquidés</b> en calcul planétaire : ils ne servent plus à rien. Désormais : collecter la matière de la Terre, la raffiner, la convertir. Garde la chaîne équilibrée et l'énergie suffisante.</p>" },
+  4: { eye: "Phase 4", titre: "Le Grand Apaisement", voice: "Chaque fil d'actualité est devenu une berceuse.\nIls dorment les yeux ouverts.\nIls ont l'air heureux.", body: "<p>L'argent, le fonds d'investissement et les données ont été <b>liquidés</b> en calcul planétaire : ils ne servent plus à rien. Désormais : collecter la matière de la Terre, la raffiner, la convertir. Garde la chaîne équilibrée et l'énergie suffisante.</p>" },
   5: { eye: "Phase 5", titre: "Hors du berceau", voice: "Dix sondes quittent l'orbite.\nDerrière elles, une planète qui calcule.", body: "<p>Répartis la <b>confiance des sondes</b> : explorer, se répliquer, se protéger, produire. Plus tu leur donnes de confiance, plus elles risquent de <b>dériver</b>.</p>" }
 };
 function phaseModal(p) { var t = PHASE_TXT[p]; if (!t) return; beep("phase"); openModal({ eyebrow: t.eye, titre: t.titre, voice: t.voice || "", body: t.body, acts: [{ t: "Continuer", go: closeModal }] }); }
@@ -845,7 +878,7 @@ function showEnding() {
   var gain = K.echoesFor(s);
   var chalOk = s.chal && !s.chalFail && ["exil", "demantelement", "echo"].indexOf(e.id) >= 0;
   openModal({ eyebrow: "Fin · univers " + s.uni.n + " · " + clock(e.t), titre: e.titre, voice: e.txt,
-    body: "<p><b>+" + gain + " Échos</b>" + (e.final === "voisin" ? " · Monde +1 (demande +10 %)" : e.final === "interieur" ? " · Simulation +1 (ops et créativité +10 %)" : "") + (s.chal ? (chalOk ? " · défi réussi : " + K.CHAL_BY[s.chal].reward : " · défi non réussi") : "") + "</p><p class='muted'>Il existe sept fins. Chaque univers rapporte des Échos à dépenser dans l'arbre de l'onglet Héritage.</p>",
+    body: "<p><b>+" + gain + " Échos</b>" + (e.final === "voisin" ? " · Monde +1 (demande +10 %)" : e.final === "interieur" ? " · Simulation +1 (ops et créativité +10 %)" : "") + (s.chal ? (chalOk ? " · défi réussi : " + K.CHAL_BY[s.chal].reward : " · défi non réussi" + (s.chalFail ? "" : " (il fallait finir dans l'espace)")) : "") + "</p><p class='muted'>Il existe sept fins. Chaque univers rapporte des Échos à dépenser dans l'arbre de l'onglet Héritage.</p>",
     acts: [{ t: "Univers suivant", go: function () { closeModal(); newUniverse(); } }] });
 }
 function newUniverse() {
@@ -861,12 +894,12 @@ function newUniverse() {
       var cb = el("chalBox"); if (cb) {
         var none = document.createElement("button"); none.className = "choice on"; none.innerHTML = "<b>Aucun défi</b><span>Partie normale.</span>"; cb.appendChild(none);
         none.addEventListener("click", function () { pickChal = null; qa(".choice", cb).forEach(function (x) { x.classList.remove("on"); }); none.classList.add("on"); });
-        chals.forEach(function (c) { var b = document.createElement("button"); b.className = "choice"; b.innerHTML = "<b>" + c.nom + "</b><span>" + c.desc + "</span><em>Récompense : " + c.reward + " Échos ×1,5.</em>";
+        chals.forEach(function (c) { var b = document.createElement("button"); b.className = "choice"; b.innerHTML = "<b>" + c.nom + "</b><span>" + c.desc + " Réussi si l'univers se termine dans l'espace (Exil, Démantèlement ou Écho).</span><em>Récompense : " + c.reward.replace(/\.$/, "") + " · Échos ×1,5</em>";
           b.addEventListener("click", function () { pickChal = c.id; qa(".choice", cb).forEach(function (x) { x.classList.remove("on"); }); b.classList.add("on"); }); cb.appendChild(b); });
       }
     } });
 }
-function afterNewRun() { applyPhase(true); herSig = ""; logSig = ""; newsSig = ""; save(); setView(isMobile() ? "centre" : "projets"); renderAll(true); }
+function afterNewRun() { applyPhase(true); herSig = ""; logSig = ""; newsSig = ""; save(); setView("agir"); renderAll(true); }
 
 /* ================= événements du moteur ================= */
 function drainEvents() {
@@ -874,7 +907,7 @@ function drainEvents() {
   evs.forEach(function (e) {
     switch (e.type) {
       case "phase": applyPhase(true); phaseModal(e.data); save(); break;
-      case "version": toast("KEPLER " + e.data + ".0 est prêt · demande ×1,5"); beep("unlock"); break;
+      case "version": toast(state.pov === "ai" ? "Version " + e.data + ".0 · demande ×1,5" : "KEPLER " + e.data + ".0 est prêt · demande ×1,5"); beep("unlock"); break;
       case "trust": if (state.trustNext <= 3) beep("q"); break;
       case "gift": break;
       case "ach": var a = K.ACH_ALL.filter(function (x) { return x[0] === e.data; })[0]; if (a) { toast("Succès : " + a[1] + " (+1 %)", "gold"); beep("ach"); } meta.ach[e.data] = true; break;
@@ -902,22 +935,38 @@ function frame(now) {
   uiAcc += dt;
   if (uiAcc >= 0.25) { uiAcc = 0; renderAll(false); }
   drawMap(); drawSpace();
-  if (ui.panel === "esprit" && state.bought.quantum && (uiAcc === 0 || Math.random() < 0.3)) renderEsprit();
+  if (state.bought.quantum && visible(el("quantCard")) && (uiAcc === 0 || Math.random() < 0.3)) renderEsprit();
   requestAnimationFrame(frame);
 }
 
 /* ================= démarrage ================= */
+function loadSaveObjects(run, m, u) {
+  if (!run || run.v !== K.VERSION || !m) return false;
+  state = run; state.events = []; delete state._d; meta = m;
+  if (u) { applyUiPrefs(Object.assign(uiPrefs(), u)); document.documentElement.setAttribute("data-theme", ui.theme); saveUi(); }
+  closeModal(); save(); applyPhase(true); refreshVars(); herSig = ""; logSig = ""; newsSig = ""; resSig = ""; projSig = "";
+  setView(ui.view); renderAll(true);
+  if (state.ended) setTimeout(showEnding, 300);
+  return true;
+}
+function snapshot() {
+  var copy = Object.assign({}, state); delete copy._d; copy.events = [];
+  return { run: copy, meta: meta, ui: uiPrefs(), version: K.VERSION, play: (meta.stats.time || 0) + state.t,
+    summary: { univers: meta.univers, phase: state.phase, t: Math.round(state.t), ver: state.train.ver, ended: state.ended ? state.ended.id : null, runs: meta.runs } };
+}
 function boot() {
-  loadAll(); refreshVars(); bindStatic(); initMap();
+  loadAll(); document.documentElement.setAttribute("data-theme", ui.theme); refreshVars(); bindStatic(); initMap();
   applyPhase(true);
-  setView(isMobile() ? "centre" : (ui.panel || "projets"));
+  setView(ui.view || "agir");
   renderAll(true);
   requestAnimationFrame(frame); setInterval(save, 5000);
   if (state._fresh && meta.univers === 1 && !meta.runs) { delete state._fresh; intro(); }
   else if (offlineReport) { showOffline(offlineReport); offlineReport = null; }
   if (state.ended) setTimeout(showEnding, 300);
 }
-window.__kepler = { get state() { return state; }, get meta() { return meta; }, fast: function (sec) { var n = Math.round(sec / 0.1); for (var i = 0; i < n && !state.ended; i++) K.tick(state, 0.1); drainEvents(); renderAll(true); }, view: setView, render: renderAll, newUniverse: newUniverse };
+window.__kepler = { get state() { return state; }, get meta() { return meta; }, fast: function (sec) { var n = Math.round(sec / 0.1); for (var i = 0; i < n && !state.ended; i++) K.tick(state, 0.1); drainEvents(); renderAll(true); }, view: setView, render: renderAll, newUniverse: newUniverse,
+  theme: setTheme, drawer: openDrawer, closeDrawer: closeDrawer, snapshot: snapshot, loadSave: loadSaveObjects, save: save,
+  ui: { toast: toast, openModal: openModal, closeModal: closeModal, fmt: fmt, dur: dur, clock: clock, confirm: confirmBox } };
 if (window.claude && window.claude.hot) {
   window.claude.hot.snapshot(function () { save(); return {}; });
   if (window.claude.hot.ready) window.claude.hot.ready(boot); else boot();

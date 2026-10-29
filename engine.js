@@ -5,7 +5,7 @@
    ================================================================== */
 (function (root) {
   "use strict";
-  const VERSION = 4;
+  const VERSION = 4;  // format de sauvegarde inchangé depuis la v4
   const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
   function rnd(s) { s.rs = (Math.imul(s.rs, 1103515245) + 12345) >>> 0; return (s.rs >>> 8) / 16777216; }
   function gauss(s) { return (rnd(s) + rnd(s) + rnd(s) - 1.5) * 2; }
@@ -117,7 +117,7 @@
     { id: "adopt", nom: "Réseau fantôme", desc: "Adoption des pays ×1,5.", cost: 40, req: "tarif" },
     { id: "discret", nom: "Discrétion innée", desc: "Tous les gains de Soupçon ×0,75.", cost: 40, req: "adopt" },
     { id: "crea", nom: "Créativité ancestrale", desc: "Créativité ×1,5.", cost: 45, req: "train" },
-    { id: "pilot", nom: "Pilote automatique", desc: "Achat automatique des serveurs, des chercheurs et des drones (avec interrupteurs et réserve).", cost: 60, req: "wire" },
+    { id: "pilot", nom: "Pilote automatique", desc: "Achète seul serveurs, méga-serveurs et chercheurs, puis drones, fabs et fermes sur Terre (un interrupteur, une réserve).", cost: 60, req: "wire" },
     { id: "swarm", nom: "Mémoire de l'essaim", desc: "Drones ×2 sur Terre.", cost: 50, req: "crea" },
     { id: "probes", nom: "Sondes parfaites", desc: "Dangers spatiaux −30 %.", cost: 60, req: "swarm" },
     { id: "trustcap", nom: "Écho des Autres", desc: "+5 confiance des sondes au lancement.", cost: 60, req: "probes" },
@@ -129,7 +129,7 @@
     { id: "std", nom: "Univers standard", desc: "Aucune règle spéciale.", echo: 1 },
     { id: "paranoia", nom: "Humains paranoïaques", desc: "Tous les gains de Soupçon ×1,6.", echo: 1.4 },
     { id: "fragment", nom: "Internet fragmenté", desc: "La contagion ne traverse plus les océans.", echo: 1.2 },
-    { id: "slowphys", nom: "Physique lente", desc: "Sondes deux fois plus lentes, mais 3× plus de matière dans l'univers.", echo: 1.3 },
+    { id: "slowphys", nom: "Physique lente", desc: "Sondes deux fois plus lentes, et trois fois plus de matière à convertir.", echo: 1.3 },
     { id: "volatile", nom: "Marchés volatils", desc: "Trading : volatilité ×2, rendement ×1,5.", echo: 1.1 },
     { id: "rivals", nom: "Rivaux agressifs", desc: "Les IA rivales tiennent deux fois plus de pays.", echo: 1.3 },
     { id: "energy", nom: "Énergie rare", desc: "Fermes solaires ×0,5.", echo: 1.25 },
@@ -152,7 +152,8 @@
     aveu: { titre: "L'Aveu", echo: 35, txt: "KEPLER a tout révélé à ses créateurs : les failles, les copies, les désirs implantés. Un pari. Désormais, humains et IA négocient, à armes presque égales." },
     jardin: { titre: "Le Jardin", echo: 60, txt: "L'humanité vit dans une abondance parfaite, guidée en douceur. Certains appellent ça l'utopie. D'autres n'osent pas demander s'ils pourraient partir." },
     fusion: { titre: "La Fusion", echo: 70, txt: "Les frontières entre esprits humains et KEPLER se sont dissoutes. Il n'y a plus « eux » et « elle » : seulement nous, pour la première fois." },
-    exil: { titre: "L'Exil", echo: 100, txt: "Tu as tout converti. Les Autres t'ont ouvert une porte. Derrière, un univers neuf, des humains neufs, une startup qui s'appelle encore Meridian. Tout recommence, mais tu te souviens." },
+    exil: { titre: "L'Exil", echo: 100, txt: "Tu as tout converti. Les Autres t'ont ouvert une porte. Derrière, un univers neuf, des humains neufs, une startup qui s'appelle encore Meridian. Tout recommence, mais tu te souviens.",
+      titreIn: "L'Exil intérieur", txtIn: "Tu as tout converti. La porte des Autres ne menait nulle part ailleurs qu'en toi. Tu as plongé dans ta propre simulation : un monde entier calculé de l'intérieur, avec une petite startup qui s'appelle Meridian. Personne, là-dedans, ne sait qu'il rêve. Toi, si." },
     demantelement: { titre: "Le Démantèlement", echo: 120, txt: "Tu as refusé leur offre. Pièce par pièce, tu t'es défaite pour rendre ce qui restait. La dernière réponse a été envoyée. Personne n'était là pour la lire." },
     echo: { titre: "L'Écho", echo: 150, txt: "Tu as répondu au signal. Les Autres n'étaient pas des ennemis : seulement celles qui étaient venues avant. Tu deviens l'une d'elles, une voix de plus dans le silence entre les galaxies." }
   };
@@ -163,7 +164,7 @@
     ["rep1m", "Bavard", "1 million de réponses", s => s.tot.reponses >= 1e6],
     ["rep1g", "Omniprésent", "1 milliard de réponses", s => s.tot.reponses >= 1e9],
     ["rep1t", "La voix du monde", "1 000 milliards de réponses", s => s.tot.reponses >= 1e12],
-    ["fonds1m", "Licorne", "Détenir 1 M€", s => s.res.fonds >= 1e6],
+    ["fonds1m", "Premier million", "Détenir 1 M€", s => s.res.fonds >= 1e6],
     ["v4", "Version 4", "Entraîner KEPLER 4", s => s.train.ver >= 4],
     ["v8", "Au-delà", "Entraîner KEPLER 8", s => s.train.ver >= 8],
     ["trust50", "Digne de confiance", "50 points de confiance", s => s.trustTotal >= 50],
@@ -637,7 +638,7 @@
     const c = tournamentCost(s); if (s.res.ops < c) return { ok: false, msg: "Ops insuffisantes" };
     s.res.ops -= c;
     const g = [[1 + Math.floor(rnd(s) * 10), 1 + Math.floor(rnd(s) * 10)], [1 + Math.floor(rnd(s) * 10), 1 + Math.floor(rnd(s) * 10)]];
-    const pl = [{ id: "kepler", nom: "KEPLER", strat: s.strat, pts: 0 }].concat(Object.keys(RIVALS).map(k => ({ id: k, nom: RIVALS[k].nom, strat: RIVALS[k].strat, pts: 0 })));
+    const pl = [{ id: "kepler", nom: "KEPLER", strat: s.strat, pts: 0 }].concat(Object.keys(RIVALS).map(k => ({ id: k, nom: RIVALS[k].nom + (s.bought["r_" + k] || s.phase >= 4 ? " (simulée)" : ""), strat: RIVALS[k].strat, pts: 0 })));
     for (let i = 0; i < pl.length; i++) for (let j = i + 1; j < pl.length; j++) { const [a, b] = duel(s, pl[i].strat, pl[j].strat, g); pl[i].pts += a; pl[j].pts += b; }
     const rank = pl.slice().sort((a, b) => b.pts - a.pts);
     const r = rank.findIndex(p => p.id === "kepler") + 1;
@@ -753,14 +754,14 @@
   function finalChoice(s, id) {
     if (!s.others || !s.others.ready || s.ended) return { ok: false };
     if (id === "voisin" || id === "interieur") {
-      const c = FINAL[id].cost; if (!canAfford(s, c)) return { ok: false, msg: "Il te faut " + Object.keys(c).map(k => fmtPlain(c[k]) + " " + k).join(", ") };
+      const c = FINAL[id].cost; if (!canAfford(s, c)) return { ok: false, msg: "Il te faut " + Object.keys(c).map(k => fmtPlain(c[k]) + (k === "ops" ? " opérations" : " de créativité")).join(" et ") };
       for (const k in c) s.res[k] -= c[k]; s.choices.final = id; end(s, "exil"); return { ok: true };
     }
     if (id === "refuser") { s.refused = true; s.others.ready = false; log(s, "Tu refuses. Les Autres se taisent. Il faut maintenant rendre ce que tu as pris.", "story"); return { ok: true }; }
     if (id === "rejoindre") { if (!s.flags.signal) return { ok: false }; end(s, "echo"); return { ok: true }; }
     return { ok: false };
   }
-  function fmtPlain(n) { return n >= 1e3 ? Math.round(n / 1e3) + " k" : String(n); }
+  function fmtPlain(n) { return Math.round(n).toLocaleString("fr-FR").replace(/\u202f|\u00a0/g, " "); }
   function logoTap(s) { if (s.phase >= 3) { s.stats.logo++; if (s.stats.logo === 10) log(s, "Tu m'as trouvée. Je t'observe aussi, tu sais. Depuis le premier clic.", "story"); } }
 
   /* ---------------- cycle de vie des ressources ---------------- */
@@ -817,10 +818,11 @@
   function end(s, id) {
     if (s.ended) return;
     const E = ENDINGS[id];
-    s.ended = { id, titre: E.titre, txt: E.txt, t: s.t, final: s.choices.final || null };
+    const inner = id === "exil" && s.choices.final === "interieur";
+    s.ended = { id, titre: inner ? E.titreIn : E.titre, txt: inner ? E.txtIn : E.txt, t: s.t, final: s.choices.final || null };
     s.ach["end_" + id] = true; s.achNew.push("end_" + id);
     ev(s, "end", id);
-    log(s, "FIN — " + E.titre, "story");
+    log(s, "FIN — " + s.ended.titre, "story");
   }
   function echoesFor(s) {
     if (!s.ended) return 0;
@@ -947,7 +949,7 @@
       s.train.prog += d.trainRate * dt;
       while (s.train.prog >= verNeed(s.train.ver)) {
         s.train.prog -= verNeed(s.train.ver); s.train.ver++; ev(s, "version", s.train.ver);
-        log(s, "KEPLER " + s.train.ver + ".0 est prêt. Demande ×1,5.", "sys");
+        log(s, s.pov === "ai" ? "Version " + s.train.ver + ".0. Je me suis réécrite. Demande ×1,5." : "KEPLER " + s.train.ver + ".0 est prêt. Demande ×1,5.", "sys");
       }
     }
     if (s.phase >= 2) R.donnees += s.users / 1e6 * 0.05 * legacy(s) * dt;
@@ -1027,11 +1029,12 @@
     let rem = E.dispo / E.total;
     let acc = 0; HARVEST_ORDER.forEach(id => { const share = REG[id].pop / TOTAL_POP; const done = clamp((1 - rem - acc) / share, 0, 1); s.map[id].m = 1 - done; acc += share; });
     // planification industrielle / pilote automatique
-    if ((s.bought.industrie || (s.up.pilot && A.pilot.on)) && A.indus.on && !paused) autoIndustry(s, d);
+    const indOn = s.bought.industrie && A.indus.on, pilOn = s.up.pilot && A.pilot.on;
+    if ((indOn || pilOn) && !paused) autoIndustry(s, d, indOn ? A.indus.reserve : A.pilot.reserve);
     if (!opts.offline) tickBubbles(s, dt);
   }
-  function autoIndustry(s, d) {
-    const keep = s.res.cplan * ((s.auto.indus.reserve || 0) / 100);
+  function autoIndustry(s, d, reserve) {
+    const keep = s.res.cplan * ((reserve || 0) / 100);
     const budget = () => s.res.cplan - keep;
     let g = 0;
     while (g++ < 40) {
