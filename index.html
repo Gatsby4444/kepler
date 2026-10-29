@@ -76,6 +76,18 @@ h1,h2,h3,h4{margin:0;font-weight:600}
 .hbtn{position:relative;min-height:44px;padding:0 14px;background:var(--btn-bg);color:var(--fg);border:1px solid var(--line2);border-radius:var(--radius);font-family:var(--ui);font-size:13px;display:inline-flex;align-items:center;gap:8px}
 .hbtn svg{width:16px;height:16px}
 #pauseBtn{border-color:var(--fg)}
+#btnMusic{padding:0 12px}
+#btnMusic .x{display:none}
+#btnMusic[aria-pressed="false"] .w1,#btnMusic[aria-pressed="false"] .w2{display:none}
+#btnMusic[aria-pressed="false"] .x{display:inline}
+#btnMusic[aria-pressed="false"]{color:var(--muted)}
+#btnMusic.playing .w1{animation:wv 1.6s ease-in-out infinite}
+#btnMusic.playing .w2{animation:wv 1.6s ease-in-out .3s infinite}
+@keyframes wv{0%,100%{opacity:1}50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){#btnMusic.playing .w1,#btnMusic.playing .w2{animation:none}}
+.volrow{padding:2px 0 12px;border-bottom:1px solid var(--line)}
+.volrow .param{margin-top:4px}
+.volrow .hint{margin:8px 0 0}
 #pauseBtn.on{background:var(--pri-bg);color:var(--pri-fg)}
 #chips{display:none}
 .pmini{display:none}
@@ -473,6 +485,7 @@ textarea.save{width:100%;min-height:90px;margin-top:10px;background:var(--card);
       <div class="hright">
         <div class="meter hidden" id="soupMeter" aria-label="Soupçon"><span>Soupçon</span><b id="soupVal">0 %</b><div class="bar soup"><i id="soupBar" style="width:0%"></i></div></div>
         <button class="hbtn" id="pauseBtn" aria-pressed="false" title="Suspendre toutes les automatisations (touche A)"><span id="pauseIco" aria-hidden="true">⏸</span><span class="lbl" id="pauseTxt">Pause</span></button>
+        <button class="hbtn" id="btnMusic" aria-pressed="true" aria-label="Musique" title="Musique (touche M)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="w1" d="M15.5 9.2a4 4 0 0 1 0 5.6"/><path class="w2" d="M18.2 6.6a7.6 7.6 0 0 1 0 10.8"/><path class="x" d="M16 9.5l5 5M21 9.5l-5 5"/></svg></button>
         <button class="hbtn" id="btnHeritage" aria-label="Héritage"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3l2.7 5.5 6 .9-4.4 4.2 1 6L12 16.8 6.7 19.6l1-6L3.3 9.4l6-.9z"/></svg><span class="lbl">Héritage</span><span class="badge" id="bdgH" hidden></span></button>
         <button class="hbtn" id="btnOptions" aria-label="Options"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg><span class="lbl">Options</span></button>
       </div>
@@ -717,8 +730,12 @@ textarea.save{width:100%;min-height:90px;margin-top:10px;background:var(--card);
           </div>
         </div></section>
         <section class="card"><div class="hd"><span class="t">Sauvegarde en ligne</span></div><div class="bd cloud" id="cloudBox"><p class="hint" style="margin:0">Chargement…</p></div></section>
-        <section class="card"><div class="hd"><span class="t">Affichage et sons</span></div><div class="bd">
-          <div class="tgrow"><div class="tl"><b>Sons</b><span>Petits signaux aux déblocages.</span></div><button class="tg" id="optSound" role="switch" aria-checked="false" aria-label="Sons"></button></div>
+        <section class="card"><div class="hd"><span class="t">Son</span></div><div class="bd">
+          <div class="tgrow"><div class="tl"><b>Musique</b><span>Une pièce par phase, composée en direct : elle s'enrichit à mesure que KEPLER grandit.</span></div><button class="tg" id="optMusic" role="switch" aria-checked="true" aria-label="Musique"></button></div>
+          <div class="volrow"><div class="param">Volume <input type="range" min="0" max="100" step="5" id="optVol" aria-label="Volume de la musique"><b id="optVolTxt">50 %</b></div><p class="hint" id="nowPlaying"></p></div>
+          <div class="tgrow"><div class="tl"><b>Bruitages</b><span>Achats, déblocages, succès et alertes.</span></div><button class="tg" id="optSound" role="switch" aria-checked="true" aria-label="Bruitages"></button></div>
+        </div></section>
+        <section class="card"><div class="hd"><span class="t">Affichage</span></div><div class="bd">
           <div class="tgrow"><div class="tl"><b>Notation scientifique</b><span>1,2e15 au lieu de 1,2Qa.</span></div><button class="tg" id="optSci" role="switch" aria-checked="false" aria-label="Notation scientifique"></button></div>
         </div></section>
         <section class="card"><div class="hd"><span class="t">Sauvegarde manuelle</span></div><div class="bd">
@@ -740,6 +757,7 @@ textarea.save{width:100%;min-height:90px;margin-top:10px;background:var(--card);
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 
 <script src="engine.js"></script>
+<script src="audio.js"></script>
 <script src="ui.js"></script>
 <script src="cloud.js"></script>
 </body>

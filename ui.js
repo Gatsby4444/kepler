@@ -9,7 +9,7 @@ if (!K) { document.body.innerHTML = "<p style='padding:40px;font-family:monospac
 var RUN_KEY = "kepler4.run", META_KEY = "kepler4.meta", UI_KEY = "kepler4.ui";
 var state = null, meta = null, offlineReport = null;
 var THEMES = ["papier", "terminal", "labo"];
-var ui = { view: "agir", panel: "projets", bm: 1, filter: "all", sound: false, sci: false, seen: {}, achSel: null, rLast: {}, theme: "papier", drawer: "heritage" };
+var ui = { view: "agir", panel: "projets", bm: 1, filter: "all", sound: true, music: true, vol: 0.5, sci: false, seen: {}, achSel: null, rLast: {}, theme: "papier", drawer: "heritage" };
 function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
@@ -20,9 +20,12 @@ function save() {
   lsSet(RUN_KEY, JSON.stringify(copy)); lsSet(META_KEY, JSON.stringify(meta));
   if (window.KeplerCloud && window.KeplerCloud.dirty) window.KeplerCloud.dirty();
 }
-function uiPrefs() { return { bm: ui.bm, filter: ui.filter, sound: ui.sound, sci: ui.sci, seen: ui.seen, panel: ui.panel, view: ui.view, theme: ui.theme }; }
+function uiPrefs() { return { bm: ui.bm, filter: ui.filter, sound: ui.sound, music: ui.music, vol: ui.vol, sci: ui.sci, seen: ui.seen, panel: ui.panel, view: ui.view, theme: ui.theme }; }
 function saveUi() { lsSet(UI_KEY, JSON.stringify(uiPrefs())); }
-function applyUiPrefs(u) { if (!u) return; ui.bm = u.bm || 1; ui.filter = u.filter || "all"; ui.sound = !!u.sound; ui.sci = !!u.sci; ui.seen = u.seen || {}; ui.panel = u.panel || "projets"; ui.view = ["agir", "projets", "monde", "journal"].indexOf(u.view) >= 0 ? u.view : "agir"; if (THEMES.indexOf(u.theme) >= 0) ui.theme = u.theme; }
+function applyUiPrefs(u) { if (!u) return; ui.bm = u.bm || 1; ui.filter = u.filter || "all";
+  // Avant la bande sonore, les sons étaient coupés par défaut : on les rallume une fois avec la musique.
+  if (u.music === undefined) { ui.music = true; ui.sound = true; } else { ui.music = !!u.music; ui.sound = !!u.sound; }
+  ui.vol = typeof u.vol === "number" ? Math.max(0, Math.min(1, u.vol)) : 0.5; ui.sci = !!u.sci; ui.seen = u.seen || {}; ui.panel = u.panel || "projets"; ui.view = ["agir", "projets", "monde", "journal"].indexOf(u.view) >= 0 ? u.view : "agir"; if (THEMES.indexOf(u.theme) >= 0) ui.theme = u.theme; }
 function loadAll() {
   try { applyUiPrefs(JSON.parse(lsGet(UI_KEY) || "null")); } catch (e) {}
   try { meta = JSON.parse(lsGet(META_KEY) || "null"); } catch (e) { meta = null; }
@@ -63,20 +66,31 @@ function show(id, on) { var e = typeof id === "string" ? el(id) : id; if (e) e.c
 var RN = { fonds: "Fonds", cache: "Réponses en cache", calcul: "Calcul", donnees: "Données", autonomie: "Autonomie", ops: "Opérations", crea: "Créativité", yomi: "Anticipation", cplan: "Calcul planétaire", energie: "Énergie stockée", honneur: "Honneur", extraite: "Matière extraite", substrat: "Substrat" };
 var RS = { fonds: "€", cache: "cache", calcul: "calcul", donnees: "données", autonomie: "autonomie", ops: "ops", crea: "créa", yomi: "antic.", cplan: "c.plan", energie: "MW·s", honneur: "honneur" };
 
-/* ================= sons ================= */
-var actx = null;
-function beep(kind) {
-  if (!ui.sound) return;
-  try {
-    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
-    var notes = { buy: [660], unlock: [523, 784], ach: [523, 659, 784, 1046], phase: [262, 392, 523, 659], warn: [220, 196], q: [880], bad: [180] }[kind] || [440];
-    notes.forEach(function (f, i) {
-      var o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime + i * 0.09;
-      o.type = kind === "warn" || kind === "bad" ? "sawtooth" : "sine"; o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.05, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
-      o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + 0.25);
-    });
-  } catch (e) {}
+/* ================= sons et musique (audio.js) ================= */
+var KA = window.KeplerAudio || null, audioArmed = false, armT = -1e9;
+function beep(kind) { if (ui.sound && KA) KA.sfx(kind); }
+// Les navigateurs n'autorisent le son qu'après un geste du joueur : on attend le premier clic ou la première touche.
+function armAudio() {
+  if (!KA) return;
+  if (!audioArmed) { audioArmed = true; armT = performance.now(); KA.setTimbre(ui.theme); KA.setVolume(ui.vol); KA.setMusic(ui.music); KA.unlock(); audioTick(true); renderMusicBtn(); }
+  else KA.unlock();
+}
+function audioTick(force) {
+  if (!KA || !audioArmed || !state) return;
+  var s = state, d = s._d || {};
+  KA.update({ phase: s.phase, ver: s.train.ver, rep: s.tot.reponses, serv: s.own.serv + s.own.mega * 10, dep: s.deployed,
+    soup: s.soupcon, enq: (s.bubbles || []).some(function (b) { return b.kind === "enquete"; }), rho: d.rho === undefined ? 1 : d.rho,
+    drones: s.own.coll + s.own.raff, fab: s.own.fab, probes: s.space ? s.space.probes : 0, drift: !!(s.space && s.space.drifters > 0),
+    paused: !!s.auto.pause, ended: !!s.ended });
+}
+// Si ce geste vient de lancer la musique (premier clic sur le bouton), on ne la recoupe pas aussitôt.
+function toggleMusic() { if (ui.music && performance.now() - armT < 800) { armT = -1e9; renderMusicBtn(); renderOptions(); return; } setMusic(!ui.music); }
+function setMusic(on) { ui.music = !!on; saveUi(); if (KA) { if (!audioArmed) armAudio(); else KA.setMusic(ui.music); } renderMusicBtn(); renderOptions(); }
+function renderMusicBtn() {
+  var b = el("btnMusic"); if (!b) return;
+  b.setAttribute("aria-pressed", ui.music ? "true" : "false");
+  b.title = (ui.music ? "Couper la musique" : "Lancer la musique") + " (touche M)";
+  b.classList.toggle("playing", ui.music && audioArmed);
 }
 
 /* ================= toasts & popover ================= */
@@ -122,12 +136,15 @@ function openDrawer(tab) {
 function closeDrawer() { el("drawer").hidden = true; }
 function setTheme(t) {
   if (THEMES.indexOf(t) < 0) return;
-  ui.theme = t; document.documentElement.setAttribute("data-theme", t); saveUi();
+  ui.theme = t; document.documentElement.setAttribute("data-theme", t); saveUi(); if (KA) KA.setTimbre(t);
   refreshVars(); resSig = ""; renderAll(true); renderOptions();
 }
 function renderOptions() {
   qa("[data-theme-pick]").forEach(function (b) { b.setAttribute("aria-pressed", b.dataset.themePick === ui.theme ? "true" : "false"); });
   el("optSound").setAttribute("aria-checked", ui.sound ? "true" : "false"); el("optSci").setAttribute("aria-checked", ui.sci ? "true" : "false");
+  el("optMusic").setAttribute("aria-checked", ui.music ? "true" : "false");
+  var v = el("optVol"), pv = Math.round(ui.vol * 100); if (+v.value !== pv) v.value = pv; setText("optVolTxt", pv + " %");
+  setText("nowPlaying", !KA ? "Le son n'est pas disponible dans ce navigateur." : !ui.music ? "Musique coupée." : !audioArmed ? "Elle démarre à ton premier clic." : "En cours : " + KA.trackName(state.phase) + (state.ended ? " (final)" : ""));
 }
 
 /* ================= interactions générales ================= */
@@ -189,7 +206,13 @@ function bindStatic() {
   // phase 4/5 curseur
   ["thinkIn", "thinkIn2"].forEach(function (id) { el(id).addEventListener("input", function (e) { K.setThink(state, +e.target.value / 100); renderEarth(); renderSpace(); }); });
   // options
-  el("optSound").addEventListener("click", function () { ui.sound = !ui.sound; saveUi(); if (ui.sound) beep("unlock"); renderOptions(); });
+  el("optSound").addEventListener("click", function () { ui.sound = !ui.sound; saveUi(); armAudio(); if (ui.sound) beep("unlock"); renderOptions(); });
+  el("optMusic").addEventListener("click", toggleMusic);
+  el("btnMusic").addEventListener("click", toggleMusic);
+  el("optVol").addEventListener("input", function () { ui.vol = Math.max(0, Math.min(1, (+this.value || 0) / 100)); if (KA) KA.setVolume(ui.vol); setText("optVolTxt", Math.round(ui.vol * 100) + " %"); });
+  el("optVol").addEventListener("change", function () { saveUi(); });
+  ["pointerdown", "pointerup", "touchend", "keydown", "click"].forEach(function (ev) { document.addEventListener(ev, armAudio, true); });
+  document.addEventListener("keydown", function (e) { if ((e.key === "m" || e.key === "M") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest("input,textarea")) toggleMusic(); });
   el("optSci").addEventListener("click", function () { ui.sci = !ui.sci; saveUi(); renderAll(true); renderOptions(); });
   el("btnExport").addEventListener("click", function () {
     save(); var txt = btoa(unescape(encodeURIComponent(JSON.stringify({ run: lsGet(RUN_KEY), meta: lsGet(META_KEY) }))));
@@ -899,14 +922,14 @@ function newUniverse() {
       }
     } });
 }
-function afterNewRun() { applyPhase(true); herSig = ""; logSig = ""; newsSig = ""; save(); setView("agir"); renderAll(true); }
+function afterNewRun() { applyPhase(true); herSig = ""; logSig = ""; newsSig = ""; save(); setView("agir"); renderAll(true); audioTick(true); }
 
 /* ================= événements du moteur ================= */
 function drainEvents() {
   var evs = state.events; if (!evs || !evs.length) return; state.events = [];
   evs.forEach(function (e) {
     switch (e.type) {
-      case "phase": applyPhase(true); phaseModal(e.data); save(); break;
+      case "phase": applyPhase(true); phaseModal(e.data); save(); audioTick(true); break;
       case "version": toast(state.pov === "ai" ? "Version " + e.data + ".0 · demande ×1,5" : "KEPLER " + e.data + ".0 est prêt · demande ×1,5"); beep("unlock"); break;
       case "trust": if (state.trustNext <= 3) beep("q"); break;
       case "gift": break;
@@ -921,19 +944,19 @@ function drainEvents() {
       case "momlost": toast("Coupure d'énergie : l'élan des drones retombe."); break;
       case "msg": beep("q"); break;
       case "choice": othersChoice(); break;
-      case "end": save(); setTimeout(showEnding, 400); break;
+      case "end": save(); audioTick(true); setTimeout(showEnding, 400); break;
     }
   });
 }
 
 /* ================= boucle ================= */
-var last = performance.now(), acc = 0, uiAcc = 0;
+var last = performance.now(), acc = 0, uiAcc = 0, audAcc = 0;
 function frame(now) {
   var dt = Math.min(0.25, (now - last) / 1000); last = now; tms += dt;
   if (!state.ended) { acc += dt; var n = 0; while (acc >= 0.1 && n++ < 5) { K.tick(state, 0.1); acc -= 0.1; } if (acc > 0.5) acc = 0; }
   drainEvents();
   uiAcc += dt;
-  if (uiAcc >= 0.25) { uiAcc = 0; renderAll(false); }
+  if (uiAcc >= 0.25) { uiAcc = 0; renderAll(false); audAcc++; if (audAcc >= 2) { audAcc = 0; audioTick(); } }
   drawMap(); drawSpace();
   if (state.bought.quantum && visible(el("quantCard")) && (uiAcc === 0 || Math.random() < 0.3)) renderEsprit();
   requestAnimationFrame(frame);
@@ -958,14 +981,14 @@ function boot() {
   loadAll(); document.documentElement.setAttribute("data-theme", ui.theme); refreshVars(); bindStatic(); initMap();
   applyPhase(true);
   setView(ui.view || "agir");
-  renderAll(true);
+  renderAll(true); renderMusicBtn();
   requestAnimationFrame(frame); setInterval(save, 5000);
   if (state._fresh && meta.univers === 1 && !meta.runs) { delete state._fresh; intro(); }
   else if (offlineReport) { showOffline(offlineReport); offlineReport = null; }
   if (state.ended) setTimeout(showEnding, 300);
 }
 window.__kepler = { get state() { return state; }, get meta() { return meta; }, fast: function (sec) { var n = Math.round(sec / 0.1); for (var i = 0; i < n && !state.ended; i++) K.tick(state, 0.1); drainEvents(); renderAll(true); }, view: setView, render: renderAll, newUniverse: newUniverse,
-  theme: setTheme, drawer: openDrawer, closeDrawer: closeDrawer, snapshot: snapshot, loadSave: loadSaveObjects, save: save,
+  theme: setTheme, music: setMusic, audio: function () { return KA ? Object.assign({ level: KA.level(), peak: KA.level(true) }, KA.state) : null; }, drawer: openDrawer, closeDrawer: closeDrawer, snapshot: snapshot, loadSave: loadSaveObjects, save: save,
   ui: { toast: toast, openModal: openModal, closeModal: closeModal, fmt: fmt, dur: dur, clock: clock, confirm: confirmBox } };
 if (window.claude && window.claude.hot) {
   window.claude.hot.snapshot(function () { save(); return {}; });
